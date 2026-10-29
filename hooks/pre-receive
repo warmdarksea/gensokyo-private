@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# gensokyo-private pre-receive: server side of the `private` guard.
+#
+# Installed into the repo that everything else clones from (the origin,
+# `hooks/install.sh --origin`). Refuses any push that updates `private`
+# unless the push carries the push option `private-ok`:
+#
+#   GENSOKYO_PUSH_PRIVATE=1 git push -o private-ok origin private
+#
+# (the env var satisfies the client-side pre-push, the push option satisfies
+# this hook; receive.advertisePushOptions must be on, install.sh sets it.)
+# pre-receive rather than update: git only hands push options to the
+# pre/post-receive hooks.
+#
+# Invoked by git with one "<old sha> <new sha> <ref name>" line per ref on stdin.
+set -u
+
+protected=refs/heads/private
+
+touches_private=0
+while read -r old new refname; do
+  [ "$refname" = "$protected" ] && touches_private=1
+done
+[ "$touches_private" = 1 ] || exit 0
+
+i=0
+while [ "$i" -lt "${GIT_PUSH_OPTION_COUNT:-0}" ]; do
+  opt="GIT_PUSH_OPTION_$i"
+  if [ "${!opt}" = private-ok ]; then
+    echo "pre-receive: push option private-ok set, accepting $protected" >&2
+    exit 0
+  fi
+  i=$((i + 1))
+done
+
+echo "pre-receive: refusing to update $protected on the origin" >&2
+echo "pre-receive:   push with: GENSOKYO_PUSH_PRIVATE=1 git push -o private-ok <remote> private" >&2
+exit 1
